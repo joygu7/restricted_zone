@@ -52,7 +52,7 @@ class Projection:
         self.size = size  # (width, height) to resize image to
         self.src = src
         self.dst = dst
-        self.matrix = cv2.getPerspectiveTransform(src, dst)
+        self.matrix, status = cv2.findHomography(src, dst)
 
     # apply transformation to input image
     def transform_frame(self, input_img):
