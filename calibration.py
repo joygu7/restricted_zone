@@ -227,11 +227,11 @@ class App(QWidget):
         with open(self.outputfile, 'w') as f:
             sys.stdout = f  # Change the standard output to the file we created.
             print('Source')
-            print(self.camerapts)
+            [print(str(x) + " " + str(y)) for (x,y) in self.camerapts]
             print('Dest')
-            print(self.floorpts)
+            [print(str(x) + " " + str(y)) for (x,y) in self.floorpts]
             print('Zone')
-            print(self.zonepts)
+            [print(str(x) + " " + str(y)) for (x,y) in self.zonepts]
         sys.stdout = original_stdout  # Reset the standard output to its original value
 
 
