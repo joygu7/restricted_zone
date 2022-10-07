@@ -2,7 +2,7 @@ import numpy as np
 import sys
 import cv2
 from PyQt5 import QtCore, QtGui, QtWidgets
-from projection import Projection
+from projection import Projection, RestrictedZone
 
 # Grab one frame from the camera feed
 # Grab image of floor plan/ or leave as blank grid
@@ -17,6 +17,8 @@ from PyQt5.QtGui import QPixmap
 class App(QWidget):
     def __init__(self, videoname):
         super().__init__()
+
+        self.outputfile = 'zoning_coordinates.txt'
 
         # camera
         self.pointcounter = 0
@@ -46,35 +48,51 @@ class App(QWidget):
         self.floor.mousePressEvent = self.getFloorPts
         self.floorpts = []
 
-        #zone definition - need to do transformation first?
+        #zone definition - need to do transformation to fill in image
         self.frame3 = None
+        self.frame3_orig = None
         self.pix3 = None
         self.projection = None
         self.zone = QLabel(self)
         self.zone.resize(self.framesize[0], self.framesize[1])
         self.zone.move(20, 90)
         self.zone.mousePressEvent = self.getZonePts
+        self.zonepts = []
+        self.zonepointcounter = 0
 
         #buttons
+        buttony = 32
+        buttonx = 64
         self.camera_button = QPushButton(self)
-        self.camera_button.setText("Camera Pt Collection")
-        self.camera_button.move(64, 32)
+        self.camera_button.setText("Camera Pts")
+        self.camera_button.move(buttonx, buttony)
         self.camera_button.clicked.connect(self.camera_button_click)
 
         self.floor_button = QPushButton(self)
-        self.floor_button.setText("Floor Pt Collection")
-        self.floor_button.move(4*64, 32)
+        self.floor_button.setText("Floor Pts")
+        self.floor_button.move(3*buttonx, buttony)
         self.floor_button.clicked.connect(self.floor_button_click)
 
         self.zone_button = QPushButton(self)
-        self.zone_button.setText("Zone Pt Collection")
-        self.zone_button.move(8 * 64, 32)
+        self.zone_button.setText("Zone Pts")
+        self.zone_button.move(5 * buttonx, buttony)
         self.zone_button.clicked.connect(self.zone_button_click)
 
         self.clear_button = QPushButton(self)
-        self.clear_button.setText("Clear")
-        self.clear_button.move(10 * 64, 32)
+        self.clear_button.setText("Points Clear")
+        self.clear_button.move(8 * buttonx, buttony)
         self.clear_button.clicked.connect(self.clear_button_click)
+
+        self.zone_clear_button = QPushButton(self)
+        self.zone_clear_button.setText("Zone Clear")
+        self.zone_clear_button.move(10* buttonx, buttony)
+        self.zone_clear_button.clicked.connect(self.zoneclear_button_click)
+
+        self.save_button = QPushButton(self)
+        self.save_button.setText("Save")
+        self.save_button.move(12*buttonx, buttony)
+        self.save_button.clicked.connect(self.save_button_click)
+
 
         self.floor.setHidden(True)
         self.camera.setHidden(False)
@@ -86,7 +104,6 @@ class App(QWidget):
         y = event.pos().y()
         self.pointcounter = self.pointcounter + 1
         self.camerapts.append([x,y])
-        print(self.camerapts)
 
         coord_str = str(self.pointcounter)+':(' + str(x) + ',' + str(y) + ')'
         font = cv2.FONT_HERSHEY_SIMPLEX
@@ -100,15 +117,12 @@ class App(QWidget):
         self.pix = self.convert_frame_to_pix(self.frame)
         self.camera.setPixmap(self.pix)
 
-        print("(x,y)= (%d, %d)" %(x,y))
-
 
     def getFloorPts(self, event):
         x = event.pos().x()
         y = event.pos().y()
         self.pointcounter2 = self.pointcounter2 + 1
         self.floorpts.append([x, y])
-        print(self.floorpts)
 
         coord_str = str(self.pointcounter2)+':(' + str(x) + ',' + str(y) + ')'
         font = cv2.FONT_HERSHEY_SIMPLEX
@@ -122,10 +136,28 @@ class App(QWidget):
         self.pix2 = self.convert_frame_to_pix(self.frame2)
         self.floor.setPixmap(self.pix2)
 
-        print("(x,y)= (%d, %d)" %(x,y))
-
     def getZonePts(self, event):
-        print(0)
+        x = event.pos().x()
+        y = event.pos().y()
+        self.zonepts.append([x, y])
+
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        fontScale = 1
+        thickness = 2
+        color = (0, 0, 255)
+        newzone = RestrictedZone(np.int32(self.zonepts).reshape((-1, 1, 2)))
+        self.frame3 = newzone.overlay_image(self.frame3_orig) #grab clean tf frame and overlay on top
+
+        counter = 0
+        for (xi,yi) in self.zonepts:
+            counter = counter + 1
+            coord_str = str(counter) + ':(' + str(xi) + ',' + str(yi) + ')'
+            self.frame3 = cv2.putText(self.frame3, coord_str, (xi - 10, yi - 15), font,
+                                  fontScale, color, thickness, cv2.LINE_AA)
+            self.frame3 = cv2.drawMarker(self.frame3, (xi, yi),
+                                     color, markerType=cv2.MARKER_DIAMOND, thickness=thickness)
+        self.pix3 = self.convert_frame_to_pix(self.frame3)
+        self.zone.setPixmap(self.pix3)
 
     def convert_frame_to_pix(self, frame):
         height, width, channel = frame.shape
@@ -153,6 +185,7 @@ class App(QWidget):
         dst = np.float32(self.floorpts)
         self.projection = Projection(self.framesize, src, dst)
         self.frame3 = self.projection.transform_frame(self.frame_orig)
+        self.frame3_orig = self.frame3.copy()
         self.pix3 = self.convert_frame_to_pix(self.frame3)
         self.zone.setPixmap(self.pix3)
         self.floor.setHidden(True)
@@ -178,6 +211,28 @@ class App(QWidget):
         self.camera.setHidden(False)
         self.zone.setHidden(True)
 
+    def zoneclear_button_click(self):
+        self.zonepts = []
+        self.pix3 = self.convert_frame_to_pix(self.frame3_orig)
+        self.zone.setPixmap(self.pix3)
+
+        self.floor.setHidden(True)
+        self.camera.setHidden(True)
+        self.zone.setHidden(False)
+
+    def save_button_click(self):
+        print('Save')
+        original_stdout = sys.stdout  # Save a reference to the original standard output
+
+        with open(self.outputfile, 'w') as f:
+            sys.stdout = f  # Change the standard output to the file we created.
+            print('Source')
+            print(self.camerapts)
+            print('Dest')
+            print(self.floorpts)
+            print('Zone')
+            print(self.zonepts)
+        sys.stdout = original_stdout  # Reset the standard output to its original value
 
 
 if __name__ == '__main__':
